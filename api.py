@@ -251,6 +251,114 @@ def create_tables():
 # Example of usage
 company_table, insider_table, market_cap_table = create_tables()
 
+
+import sqlite3
+import requests
+import json
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# Initialize Sentiment Analyzer
+analyzer = SentimentIntensityAnalyzer()
+
+# SQLite Database
+conn = sqlite3.connect('company_news.db')
+cursor = conn.cursor()
+
+# Create tables
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS NewsArticles (
+    NewsID TEXT PRIMARY KEY,
+    CompanyID TEXT,
+    NewsText TEXT
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS NewsSentiment (
+    NewsID TEXT PRIMARY KEY,
+    Sentiment REAL
+)
+''')
+
+# World News API key
+world_news_api_key = '1374cdc0145a436bae573e25d61ad392'
+
+# Function to get latest news articles for a company
+def get_latest_news(company_name):
+    url = f"https://newsapi.org/v2/everything?q={company_name}&pageSize=25&apiKey={world_news_api_key}"
+    
+    # Make the API request
+    response = requests.get(url)
+    news_data = response.json()
+
+    # Check if there is an error in the response
+    if news_data.get('status') != 'ok':
+        print(f"Error fetching news for {company_name}")
+        return []
+
+    # Collect and return the news articles data
+    news_articles = []
+    for article in news_data['articles']:
+        # Get polarity of the article's description/title (combined)
+        text = article['title'] + " " + (article['description'] or "")
+        sentiment = analyzer.polarity_scores(text)
+
+        news_articles.append({
+            "company": company_name,
+            "title": article['title'],
+            "description": article['description'],
+            "url": article['url'],
+            "published_at": article['publishedAt'],
+            "polarity": sentiment['compound'],  # Sentiment polarity score
+            "news_id": article['url']  # Use URL as the unique news ID
+        })
+    
+    return news_articles
+
+# Function to process all companies and insert their news into SQLite
+def process_and_insert_news(companies):
+    all_news_articles = []
+
+    for company_name in companies:
+        print(f"Processing news for {company_name}...")
+        
+        # Get the latest 25 news articles for the company
+        news_data = get_latest_news(company_name)
+        
+        # Insert news articles into NewsArticles table
+        for article in news_data:
+            cursor.execute('''
+            INSERT OR REPLACE INTO NewsArticles (NewsID, CompanyID, NewsText)
+            VALUES (?, ?, ?)
+            ''', (article['news_id'], company_name, article['title'] + " " + (article['description'] or '')))
+        
+            # Insert sentiment into NewsSentiment table
+            cursor.execute('''
+            INSERT OR REPLACE INTO NewsSentiment (NewsID, Sentiment)
+            VALUES (?, ?)
+            ''', (article['news_id'], article['polarity']))
+
+        all_news_articles.extend(news_data)
+    
+    # Commit the changes
+    conn.commit()
+
+    # Print all results (or store in a database as needed)
+    print("\nLatest News Articles with Polarity:")
+    print(json.dumps(all_news_articles, indent=2))
+    
+    return all_news_articles
+
+# List of company names for which we need news
+company_names = ["Apple", "Google", "Amazon", "Microsoft"]
+
+# Run the process for the company names
+news_table = process_and_insert_news(company_names)
+
+# Close the SQLite connection
+conn.close()
+
+
 # Print the tables
 print("Table 1: Company Table")
 print(json.dumps(company_table, indent=2))
