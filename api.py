@@ -66,3 +66,196 @@ def get_market_cap(symbol):
     return final_data
 
 #print(get_market_cap("AAPL"))
+
+#Function to get news articles 
+
+# World News API key
+world_news_api_key = '1374cdc0145a436bae573e25d61ad392'
+
+# List of company names for which we need news
+company_names = ["Apple", "Google", "Amazon", "Microsoft"]
+
+# Function to get the latest 25 news articles for a company using World News API
+def get_latest_news(company_name):
+    url = f"https://newsapi.org/v2/everything?q={company_name}&pageSize=25&apiKey={world_news_api_key}"
+    
+    # Make the API request
+    response = requests.get(url)
+    news_data = response.json()
+
+    # Check if there is an error in the response
+    if news_data.get('status') != 'ok':
+        print(f"Error fetching news for {company_name}")
+        return []
+
+    # Collect and return the news articles data
+    news_articles = []
+    for article in news_data['articles']:
+        news_articles.append({
+            "company": company_name,
+            "title": article['title'],
+            "description": article['description'],
+            "url": article['url'],
+            "published_at": article['publishedAt']
+        })
+    
+    return news_articles
+
+# Function to process all companies and get their news articles
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# Sentiment Analyzer Initialization
+analyzer = SentimentIntensityAnalyzer()
+
+# World News API key
+world_news_api_key = '1374cdc0145a436bae573e25d61ad392'
+
+# List of company names for which we need news
+company_names = ["Apple", "Google", "Amazon", "Microsoft"]
+
+# Function to get the latest 25 news articles for a company using World News API
+def get_latest_news(company_name):
+    url = f"https://newsapi.org/v2/everything?q={company_name}&pageSize=25&apiKey={world_news_api_key}"
+    
+    # Make the API request
+    response = requests.get(url)
+    news_data = response.json()
+
+    # Check if there is an error in the response
+    if news_data.get('status') != 'ok':
+        print(f"Error fetching news for {company_name}")
+        return []
+
+    # Collect and return the news articles data
+    news_articles = []
+    for article in news_data['articles']:
+        # Get polarity of the article's description/title (combined)
+        text = article['title'] + " " + (article['description'] or "")
+        sentiment = analyzer.polarity_scores(text)
+
+        news_articles.append({
+            "company": company_name,
+            "title": article['title'],
+            "description": article['description'],
+            "url": article['url'],
+            "published_at": article['publishedAt'],
+            "polarity": sentiment['compound']  # Sentiment polarity score
+        })
+    
+    return news_articles
+
+# Function to process all companies and get their news articles
+def process_companies_news(companies):
+    all_news_articles = []
+
+    for company_name in companies:
+        print(f"Processing news for {company_name}...")
+        
+        # Get the latest 25 news articles for the company
+        news_data = get_latest_news(company_name)
+        all_news_articles.extend(news_data)
+
+    # Print all results (or store in a database as needed)
+    print("\nLatest News Articles with Polarity:")
+    print(json.dumps(all_news_articles, indent=2))
+    
+    return all_news_articles
+
+# Run the process for the company names
+news_table = process_companies_news(company_names)
+
+
+#functions for tables 
+
+
+# Function to create and populate the database with the three tables
+def create_tables():
+    # Connect to SQLite database (or create it if it doesn't exist)
+    conn = sqlite3.connect('companies.db')
+    cursor = conn.cursor()
+
+    # Create the tables
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS company_table (
+        company_id INTEGER PRIMARY KEY,
+        symbol TEXT,
+        name TEXT
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS insider_table (
+        company_id INTEGER,
+        insider_senti TEXT,
+        date TEXT,
+        FOREIGN KEY(company_id) REFERENCES company_table(company_id)
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS market_cap_table (
+        company_id INTEGER,
+        market_cap REAL,
+        date TEXT,
+        FOREIGN KEY(company_id) REFERENCES company_table(company_id)
+    )
+    ''')
+
+    symbols = user_input()
+    
+    # Insert data into the company_table
+    for idx, symbol in enumerate(symbols):
+        name = get_name(symbol)
+        cursor.execute('''
+        INSERT INTO company_table (company_id, symbol, name) 
+        VALUES (?, ?, ?)
+        ''', (idx + 1, symbol, name))
+
+    # Insert data into the insider_table
+    for idx, symbol in enumerate(symbols):
+        insider_senti = get_insider_senti(symbol)
+        for item in insider_senti:
+            cursor.execute('''
+            INSERT INTO insider_table (company_id, insider_senti, date) 
+            VALUES (?, ?, ?)
+            ''', (idx + 1, item["insider_senti"], item["date"]))
+
+    # Insert data into the market_cap_table
+    for idx, symbol in enumerate(symbols):
+        market_cap_data = get_market_cap(symbol)
+        for item in market_cap_data:
+            cursor.execute('''
+            INSERT INTO market_cap_table (company_id, market_cap, date) 
+            VALUES (?, ?, ?)
+            ''', (idx + 1, item["market_cap"], item["date"]))
+
+    # Commit the changes and close the connection
+    conn.commit()
+
+    # Query the tables to confirm the data insertion
+    cursor.execute('SELECT * FROM company_table')
+    company_table = cursor.fetchall()
+
+    cursor.execute('SELECT * FROM insider_table')
+    insider_table = cursor.fetchall()
+
+    cursor.execute('SELECT * FROM market_cap_table')
+    market_cap_table = cursor.fetchall()
+
+    # Close the connection
+    conn.close()
+
+    return company_table, insider_table, market_cap_table
+
+
+# Example of usage
+company_table, insider_table, market_cap_table = create_tables()
+
+# Print the tables
+print("Table 1: Company Table")
+print(json.dumps(company_table, indent=2))
+print("\nTable 2: Insider Sentiment Table")
+print(json.dumps(insider_table, indent=2))
+print("\nTable 3: Market Cap Table")
+print(json.dumps(market_cap_table, indent=2))
+
